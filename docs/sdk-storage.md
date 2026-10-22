@@ -159,6 +159,7 @@ await vm.exec(["mount", "/dev/vdb", "/nix"]);
 `extraDisks` supports at most eight images, each with an absolute host path,
 `format: "raw" | "qcow2"`, and optional `readOnly: true`. Paths must differ
 from the root and other extra disks. The guest root disk remains `/dev/vda`.
+Disk-only VM checkpoints include **only the root disk**, not extra disks.
 
 ## Disk Checkpoints (qcow2)
 
