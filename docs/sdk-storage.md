@@ -137,6 +137,29 @@ The guest image must include `resize2fs` (Alpine package: `e2fsprogs`). Newer
 `alpine-base` images include it; custom images should add it to
 `alpine.rootfsPackages` when using `rootfs.size`.
 
+## Additional persistent block disks (QEMU)
+
+`sandbox.extraDisks` attaches explicit host disk images after the root disk,
+starting at `/dev/vdb`. Gondolin never creates, formats, mounts, snapshots or
+deletes these disks. Their contents persist across VMs, even when the root disk
+uses a disposable copy-on-write overlay. Only QEMU supports this option; krun
+fails closed. The caller must ensure that only one VM mounts a writable image
+at a time, including across independent processes.
+
+```ts
+const vm = await VM.create({
+  sandbox: {
+    extraDisks: [{ path: "/absolute/path/nix.qcow2", format: "qcow2" }],
+  },
+});
+// Format a new image once before mounting. The caller owns lifecycle and locks.
+await vm.exec(["mount", "/dev/vdb", "/nix"]);
+```
+
+`extraDisks` supports at most eight images, each with an absolute host path,
+`format: "raw" | "qcow2"`, and optional `readOnly: true`. Paths must differ
+from the root and other extra disks. The guest root disk remains `/dev/vda`.
+
 ## Disk Checkpoints (qcow2)
 
 Gondolin supports **disk-only checkpoints** of the VM root filesystem.

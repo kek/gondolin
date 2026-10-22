@@ -5,6 +5,7 @@ import fs from "fs";
 import net from "net";
 import path from "path";
 import { randomUUID } from "crypto";
+import type { SandboxExtraDisk } from "./server-options.ts";
 
 const activeChildren = new Set<ChildProcess>();
 let exitHookRegistered = false;
@@ -242,6 +243,8 @@ export type SandboxConfig = {
   rootDiskVolatileMode?: "snapshot";
   /** qemu readonly mode for the root disk */
   rootDiskReadOnly?: boolean;
+  /** additional QEMU disks, starting at `/dev/vdb` */
+  extraDisks?: SandboxExtraDisk[];
 
   /** vm memory size (qemu syntax, e.g. "1G") */
   memory: string;
@@ -733,6 +736,15 @@ function buildQemuArgs(config: SandboxConfig) {
     const blkDevice =
       machineType === "microvm" ? "virtio-blk-device" : "virtio-blk-pci";
     args.push("-device", `${blkDevice},drive=drive0`);
+  }
+  if (config.extraDisks?.length && !config.rootDiskPath) {
+    throw new Error("extraDisks requires a root disk so the first extra disk is /dev/vdb");
+  }
+  for (const [index, disk] of (config.extraDisks ?? []).entries()) {
+    const id = `drive${index + 1}`;
+    const blkDevice = machineType === "microvm" ? "virtio-blk-device" : "virtio-blk-pci";
+    args.push("-drive", `file=${disk.path},format=${disk.format},if=none,id=${id}${disk.readOnly ? ",readonly=on" : ""}`);
+    args.push("-device", `${blkDevice},drive=${id}`);
   }
   if (machineType === "microvm") {
     // microvm has no PCI bus and uses virtio-mmio devices.

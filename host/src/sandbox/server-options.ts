@@ -47,6 +47,16 @@ export type ImagePath = string | GuestAssets;
 /** vm backend implementation */
 export type SandboxVmm = "qemu" | "krun";
 
+/** Additional QEMU virtio block device attached after the root disk */
+export type SandboxExtraDisk = {
+  /** absolute host image path */
+  path: string;
+  /** host image format */
+  format: "raw" | "qcow2";
+  /** whether guest writes are refused */
+  readOnly?: boolean;
+};
+
 const DEFAULT_MAX_STDIN_BYTES = 64 * 1024;
 const DEFAULT_MAX_QUEUED_STDIN_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_TOTAL_QUEUED_STDIN_BYTES = 32 * 1024 * 1024;
@@ -103,6 +113,9 @@ export type SandboxServerOptions = {
 
   /** qemu readonly mode for the root disk */
   rootDiskReadOnly?: boolean;
+
+  /** additional persistent QEMU block devices (`/dev/vdb`, `/dev/vdc`, ...) */
+  extraDisks?: SandboxExtraDisk[];
 
   /**
    * Delete the root disk image on VM close
@@ -189,6 +202,8 @@ export type ResolvedSandboxServerOptions = {
   rootDiskFormat: "raw" | "qcow2";
   /** qemu readonly mode for the root disk */
   rootDiskReadOnly: boolean;
+  /** additional persistent QEMU block devices (`/dev/vdb`, `/dev/vdc`, ...) */
+  extraDisks: SandboxExtraDisk[];
 
   /** vm memory size (qemu syntax, e.g. "1G") */
   memory: string;
@@ -904,6 +919,7 @@ export function resolveSandboxServerOptions(
     if (options.cpu !== undefined) unsupported.push("sandbox.cpu");
     if (options.qemuIdlePauseMs !== undefined)
       unsupported.push("sandbox.qemuIdlePauseMs");
+    if (options.extraDisks?.length) unsupported.push("sandbox.extraDisks");
 
     if (unsupported.length > 0) {
       throw new Error(
@@ -993,6 +1009,23 @@ export function resolveSandboxServerOptions(
   const rootDiskFormat =
     options.rootDiskFormat ?? (options.rootDiskPath ? "qcow2" : "raw");
   const rootDiskReadOnly = options.rootDiskReadOnly ?? false;
+  const extraDisks = options.extraDisks ?? [];
+  if (extraDisks.length > 8) throw new Error("sandbox.extraDisks supports at most 8 disks");
+  const diskPaths = new Set([path.resolve(rootDiskPath)]);
+  for (const disk of extraDisks) {
+    if (!disk || typeof disk.path !== "string" || !path.isAbsolute(disk.path) || disk.path.includes(",")) {
+      throw new Error("sandbox.extraDisks paths must be absolute and contain no commas");
+    }
+    if (disk.format !== "raw" && disk.format !== "qcow2") {
+      throw new Error("sandbox.extraDisks format must be raw or qcow2");
+    }
+    if (disk.readOnly !== undefined && typeof disk.readOnly !== "boolean") {
+      throw new Error("sandbox.extraDisks readOnly must be boolean");
+    }
+    const normalized = path.resolve(disk.path);
+    if (diskPaths.has(normalized)) throw new Error("sandbox.extraDisks paths must be distinct from the root disk and each other");
+    diskPaths.add(normalized);
+  }
 
   const maxStdinBytes = options.maxStdinBytes ?? DEFAULT_MAX_STDIN_BYTES;
   const maxQueuedStdinBytes = Math.max(
@@ -1014,6 +1047,7 @@ export function resolveSandboxServerOptions(
     rootDiskPath,
     rootDiskFormat,
     rootDiskReadOnly,
+    extraDisks: extraDisks.map((disk) => ({ ...disk })),
     memory: options.memory ?? defaultMemory,
     cpus: options.cpus ?? 2,
     virtioSocketPath: options.virtioSocketPath ?? defaultVirtio,

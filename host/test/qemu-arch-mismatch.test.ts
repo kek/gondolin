@@ -183,6 +183,21 @@ test("resolveSandboxServerOptions rejects invalid vmm backend", () => {
   }
 });
 
+test("resolveSandboxServerOptions validates extra QEMU disk images and rejects krun", () => {
+  const dir = makeTempAssetsDir(process.arch === "arm64" ? "aarch64" : "x86_64");
+  try {
+    const options = { imagePath: dir, extraDisks: [{ path: "/tmp/nix.qcow2", format: "qcow2" as const }] };
+    const resolved = resolveSandboxServerOptions(options);
+    assert.deepEqual(resolved.extraDisks, options.extraDisks);
+    assert.throws(() => resolveSandboxServerOptions({ ...options, vmm: "krun" }), /sandbox.extraDisks/);
+    assert.throws(() => resolveSandboxServerOptions({ ...options, extraDisks: [{ path: "relative.qcow2", format: "qcow2" }] }), /must be absolute/);
+    assert.throws(() => resolveSandboxServerOptions({ ...options, extraDisks: [{ path: resolved.rootDiskPath, format: "raw" }] }), /distinct from the root disk/);
+    assert.throws(() => resolveSandboxServerOptions({ ...options, extraDisks: [{ path: "/tmp/nix.qcow2", format: "vmdk" }] }), /raw or qcow2/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("resolveSandboxServerOptions rejects removed sandbox.rootDiskSnapshot", () => {
   const hostArch = process.arch === "arm64" ? "aarch64" : "x86_64";
   const dir = makeTempAssetsDir(hostArch);

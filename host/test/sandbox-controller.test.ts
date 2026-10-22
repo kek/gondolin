@@ -149,6 +149,25 @@ test("buildQemuArgs: rootDiskVolatileMode=snapshot enables qemu snapshot mode", 
   assert.match(args[driveIndex + 1]!, /snapshot=on/);
 });
 
+test("buildQemuArgs: extra disks attach as virtio-blk after disposable root", () => {
+  for (const machineType of ["virt", "microvm"]) {
+    const args = __test.buildQemuArgs(makeConfig({
+      machineType,
+      rootDiskPath: "/tmp/root.qcow2",
+      rootDiskFormat: "qcow2",
+      rootDiskVolatileMode: "snapshot",
+      extraDisks: [{ path: "/tmp/nix.qcow2", format: "qcow2" }, { path: "/tmp/data.raw", format: "raw", readOnly: true }],
+    }));
+    const drives = args.flatMap((arg, index) => arg === "-drive" ? [args[index + 1]!] : []);
+    assert.match(drives[0]!, /id=drive0,snapshot=on/);
+    assert.match(drives[1]!, /file=\/tmp\/nix.qcow2,format=qcow2,if=none,id=drive1$/);
+    assert.match(drives[2]!, /id=drive2,readonly=on$/);
+    const devices = args.flatMap((arg, index) => arg === "-device" && args[index + 1]?.includes("drive=drive") ? [args[index + 1]!] : []);
+    assert.deepEqual(devices, [0, 1, 2].map(i => `${machineType === "microvm" ? "virtio-blk-device" : "virtio-blk-pci"},drive=drive${i}`));
+  }
+  assert.throws(() => __test.buildQemuArgs(makeConfig({ extraDisks: [{ path: "/tmp/nix.qcow2", format: "qcow2" }] })), /requires a root disk/);
+});
+
 test("SandboxController: idle pause uses a short QMP socket", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gondolin-qmp-test-"));
   const seenCommands: string[] = [];
